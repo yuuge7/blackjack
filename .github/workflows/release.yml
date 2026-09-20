@@ -1,0 +1,216 @@
+name: Release
+
+# Every push to main ships a release. The version is bumped here rather than by
+# hand, so two pushes can never land on the same tag and overwrite each other's
+# release.
+#
+# The bump commit is pushed with GITHUB_TOKEN, and GitHub deliberately does not
+# re-trigger workflows for pushes made with that token, so this cannot loop.
+# `[skip ci]` in the message is a second belt on the same trousers.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One release at a time. Two concurrent runs would both try to claim a tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.47.0
+
+jobs:
+  verify:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  release:
+    name: Build and publish
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version bump is committed back, so we need real history and a
+          # token allowed to push.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the next version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          current=$(grep -m1 '^version:' pubspec.yaml | sed 's/^version:[[:space:]]*//')
+          name=${current%%+*}
+          build=${current##*+}
+          major=$(echo "$name" | cut -d. -f1)
+          minor=$(echo "$name" | cut -d. -f2)
+
+          echo "Currently at $current"
+
+          git fetch --tags --force --quiet
+
+          # Keep bumping the minor until the tag is genuinely free — checked
+          # against both the git tags and the GitHub releases, so a release is
+          # never overwritten.
+          #
+          # The bump is conditional rather than unconditional, so the very
+          # first run ships the version already in pubspec.yaml (v1.0) and
+          # every later run steps past whatever is taken. pubspec.yaml then
+          # always names the version that was last released, instead of
+          # sitting one ahead of it.
+          while git rev-parse -q --verify "refs/tags/v${major}.${minor}" >/dev/null \
+             || gh release view "v${major}.${minor}" >/dev/null 2>&1; do
+            echo "v${major}.${minor} is taken, moving on"
+            minor=$((minor + 1))
+            build=$((build + 1))
+          done
+
+          version="${major}.${minor}.0+${build}"
+          tag="v${major}.${minor}"
+
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "title=Blackjack $tag"
+            echo "previous=$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Releasing $tag as $version"
+
+      - name: Bump pubspec.yaml
+        run: |
+          set -euo pipefail
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" pubspec.yaml
+          grep '^version:' pubspec.yaml
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Restore the signing key
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64}" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::KEYSTORE_BASE64 is not set — this build will be signed with the debug key and will not install over a properly signed copy. See README.md."
+            exit 0
+          fi
+
+          echo "${KEYSTORE_BASE64}" | base64 -d > upload-keystore.jks
+          cat > key.properties <<PROPS
+          storePassword=${KEYSTORE_PASSWORD}
+          keyPassword=${KEY_PASSWORD}
+          keyAlias=${KEY_ALIAS:-upload}
+          storeFile=upload-keystore.jks
+          PROPS
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          flutter build apk --release --split-per-abi
+          flutter build apk --release
+          flutter build appbundle --release
+
+      - name: Collect the artifacts
+        id: artifacts
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          mkdir -p dist
+
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "dist/blackjack-${tag}-universal.apk"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            src="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            [ -f "$src" ] && cp "$src" "dist/blackjack-${tag}-${abi}.apk"
+          done
+          cp build/app/outputs/bundle/release/app-release.aab \
+             "dist/blackjack-${tag}.aab"
+
+          (cd dist && sha256sum ./*.apk ./*.aab > SHA256SUMS.txt)
+          ls -lh dist
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f upload-keystore.jks key.properties
+
+      - name: Commit the version bump
+        run: |
+          set -euo pipefail
+          # The first release ships the version already in pubspec.yaml, so
+          # there is genuinely nothing to commit that time round.
+          if git diff --quiet -- pubspec.yaml; then
+            echo "pubspec.yaml already names ${{ steps.version.outputs.version }}"
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pubspec.yaml
+          git commit -m "chore: release ${{ steps.version.outputs.tag }} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+            signing_note="Signed with the project's release key."
+          else
+            signing_note="⚠️ **Debug-signed.** \`KEYSTORE_BASE64\` was not configured, so these builds cannot install over a release-signed copy."
+          fi
+
+          cat > notes.md <<NOTES
+          **Blackjack ${tag}** · \`${{ steps.version.outputs.version }}\`
+
+          Install \`blackjack-${tag}-arm64-v8a.apk\` on any phone from the last
+          several years. Take the universal APK if you are not sure which
+          architecture your device is. \`SHA256SUMS.txt\` has the checksums.
+
+          ${signing_note}
+          NOTES
+
+          gh release create "$tag" \
+            --title "${{ steps.version.outputs.title }}" \
+            --notes-file notes.md \
+            --generate-notes \
+            --target "$(git rev-parse HEAD)" \
+            dist/*

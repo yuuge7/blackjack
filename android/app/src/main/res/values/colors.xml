@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppColor.feltLo from lib/design/tokens.dart. The window starts on the
+         table's own black so there is no white flash before the first frame. -->
+    <color name="felt_lo">#FF0A0D18</color>
+</resources>
