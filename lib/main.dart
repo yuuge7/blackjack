@@ -7,6 +7,7 @@ import 'design/theme.dart';
 import 'design/tokens.dart';
 import 'state/day_stats_store.dart';
 import 'state/game_controller.dart';
+import 'state/profile_store.dart';
 import 'state/settings_store.dart';
 import 'state/stats_store.dart';
 import 'ui/app_shell.dart';
@@ -42,11 +43,17 @@ class BlackjackApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => SettingsStore(prefs)),
         ChangeNotifierProvider(create: (_) => DayStatsStore(prefs)),
-        // The day ledger is fed through StatsStore rather than from the table,
-        // so there is exactly one place a round gets counted.
-        ChangeNotifierProxyProvider<DayStatsStore, StatsStore>(
-          create: (ctx) => StatsStore(prefs, days: ctx.read<DayStatsStore>()),
-          update: (_, __, stats) => stats!,
+        ChangeNotifierProvider(create: (_) => ProfileStore(prefs)),
+        // The day ledger and the profile's high-water mark are both fed
+        // through StatsStore rather than from the table, so there is exactly
+        // one place a round gets counted.
+        ChangeNotifierProxyProvider2<DayStatsStore, ProfileStore, StatsStore>(
+          create: (ctx) => StatsStore(
+            prefs,
+            days: ctx.read<DayStatsStore>(),
+            profile: ctx.read<ProfileStore>(),
+          ),
+          update: (_, __, ___, stats) => stats!,
         ),
         ChangeNotifierProxyProvider2<SettingsStore, StatsStore, GameController>(
           create: (ctx) => GameController(

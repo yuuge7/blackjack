@@ -14,12 +14,25 @@ String chips(int value) {
 /// Signed, for anything that can go either way.
 String signedChips(int value) => value > 0 ? '+${chips(value)}' : chips(value);
 
-/// What fits on the face of a chip: 25, 500, 1K, 25K.
+/// What fits on the face of a chip: 25, 500, 1K, 25K, 2.5M.
 String chipFace(int denom) {
+  String scaled(num value) => value == value.roundToDouble()
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
+
   if (denom < 1000) return '$denom';
-  final thousands = denom / 1000;
-  final label = thousands == thousands.roundToDouble()
-      ? thousands.round().toString()
-      : thousands.toStringAsFixed(1);
-  return '${label}K';
+  if (denom < 1000000) return '${scaled(denom / 1000)}K';
+  if (denom < 1000000000) return '${scaled(denom / 1000000)}M';
+  return '${scaled(denom / 1000000000)}B';
+}
+
+/// A short form for headline amounts, where the full grouped number would not
+/// fit: 4,200 stays 4,200, but 1,250,000 becomes 1.25M.
+String compactChips(int value) {
+  final n = value.abs();
+  if (n < 100000) return chips(value);
+  final sign = value < 0 ? '-' : '';
+  if (n < 1000000) return '$sign${(n / 1000).toStringAsFixed(0)}K';
+  if (n < 1000000000) return '$sign${(n / 1000000).toStringAsFixed(2)}M';
+  return '$sign${(n / 1000000000).toStringAsFixed(2)}B';
 }

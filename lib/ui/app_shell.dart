@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../design/tokens.dart';
 import 'calendar/calendar_screen.dart';
+import 'profile/profile_screen.dart';
 import 'settings/settings_screen.dart';
 import 'stats/stats_screen.dart';
 import 'table/table_screen.dart';
@@ -16,7 +17,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _tab = 0;
 
-  static const _labels = ['Table', 'Stats', 'Days', 'Rules'];
+  static const _labels = ['Table', 'Stats', 'Days', 'You', 'Rules'];
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +34,7 @@ class _AppShellState extends State<AppShell> {
                   TableScreen(),
                   StatsScreen(),
                   CalendarScreen(),
+                  ProfileScreen(),
                   RulesScreen(),
                 ],
               ),

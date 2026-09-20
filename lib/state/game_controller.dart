@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../design/format.dart' as money;
 import '../engine/basic_strategy.dart';
 import '../model/hand.dart';
 import '../model/rules.dart';
@@ -140,6 +141,23 @@ class GameController extends ChangeNotifier {
     _notify();
   }
 
+  /// Sets the bet outright, for the amounts a rack of four chips cannot stack.
+  /// Clamped to what the table takes and what you can actually cover.
+  void setBet(int amount) {
+    if (phase != Phase.betting) return;
+    final ceiling = bankroll < tier.max ? bankroll : tier.max;
+    bet = amount <= 0 ? 0 : amount.clamp(0, ceiling < 0 ? 0 : ceiling);
+    _tick();
+    _persistBet();
+    _notify();
+  }
+
+  /// The largest bet this table and this bankroll allow between them.
+  int get maxBet {
+    final ceiling = bankroll < tier.max ? bankroll : tier.max;
+    return ceiling < 0 ? 0 : ceiling;
+  }
+
   void clearBet() {
     if (phase != Phase.betting) return;
     bet = 0;
@@ -153,15 +171,26 @@ class GameController extends ChangeNotifier {
     _notify();
   }
 
+  /// What the floor would comp you right now. Normally a flat marker, but at
+  /// your own table the minimum can be set arbitrarily high, and a 200 marker
+  /// against a 50,000 minimum would leave you stuck asking for another one
+  /// forever. There it comps enough for a few hands instead.
+  int get markerAmount {
+    if (!tier.isCustom) return kMarkerAmount;
+    final wanted = tier.min * 5 - bankroll;
+    return wanted > kMarkerAmount ? wanted : kMarkerAmount;
+  }
+
   /// The house always has a marker for you, so you can never be left at the
   /// table with nothing and no way to bet again.
   void takeMarker() {
-    bankroll += kMarkerAmount;
-    stats.recordMarker(kMarkerAmount);
+    final amount = markerAmount;
+    bankroll += amount;
+    stats.recordMarker(amount);
     prefs.setInt('bankroll', bankroll);
     _ensureAffordableTable();
     _clampBet();
-    message = 'Marker for $kMarkerAmount';
+    message = 'Marker for ${money.chips(amount)}';
     detail = 'Comped chips. They never count as winnings.';
     _notify();
   }

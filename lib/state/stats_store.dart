@@ -7,13 +7,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../model/hand.dart';
 import '../model/stats.dart';
 import 'day_stats_store.dart';
+import 'profile_store.dart';
 
 enum StatsScope { session, lifetime }
 
 /// Keeps three ledgers in step: this session, everything ever played, and — if
 /// one is wired up — the per-day record the calendar reads.
 class StatsStore extends ChangeNotifier {
-  StatsStore(this._prefs, {this.days}) {
+  StatsStore(this._prefs, {this.days, this.profile}) {
     final raw = _prefs.getString('stats');
     if (raw != null) {
       try {
@@ -29,6 +30,9 @@ class StatsStore extends ChangeNotifier {
   /// The calendar's ledger, when one is wired up. Null in tests that only
   /// care about the session and lifetime totals.
   final DayStatsStore? days;
+
+  /// Holds the bankroll high-water mark the profile's badges read.
+  final ProfileStore? profile;
 
   StatsData _lifetime = StatsData();
   StatsData _session = StatsData();
@@ -81,6 +85,7 @@ class StatsStore extends ChangeNotifier {
     _session.recordRound(roundNet: net, roundWagered: wagered, bankroll: bankroll);
     _lifetime.recordRound(roundNet: net, roundWagered: wagered, bankroll: bankroll);
     days?.recordRound(net: net, wagered: wagered);
+    profile?.noteBankroll(bankroll);
     _scheduleSave();
     notifyListeners();
   }

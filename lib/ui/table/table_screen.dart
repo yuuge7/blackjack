@@ -193,7 +193,7 @@ class _LimitPlaque extends StatelessWidget {
         context,
         bankroll: game.bankroll,
         currentId: tier.id,
-        customRules: context.read<SettingsStore>().customRules,
+        customTier: context.read<SettingsStore>().customTier,
         onPick: context.read<SettingsStore>().setTier,
       ),
       child: Container(

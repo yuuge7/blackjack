@@ -25,7 +25,9 @@ class AppColor {
   /// Neutral midpoint for the win / push / loss scale, and recessive chart ink.
   static const slate = Color(0xFF7C8498);
 
-  /// Chip clay by denomination, the way a real rack is ordered.
+  /// Chip clay by denomination, the way a real rack is ordered. The top three
+  /// are past anything a real floor racks, but the house-rules table takes any
+  /// limit you care to set, so the ladder has to go somewhere.
   static const chips = <int, Color>{
     1: Color(0xFFE6DFCE),
     5: Color(0xFFC8372F),
@@ -35,10 +37,13 @@ class AppColor {
     1000: Color(0xFFB8701A),
     5000: Color(0xFF2E5E8E),
     25000: Color(0xFFCBAE55),
+    100000: Color(0xFF8E2F4E),
+    500000: Color(0xFF1F6F72),
+    2500000: Color(0xFFD9D2BF),
   };
 
   /// Denominations whose clay is light enough to need dark lettering.
-  static const _lightChips = {1, 25000};
+  static const _lightChips = {1, 25000, 2500000};
 
   static Color chipInk(int denom) => _lightChips.contains(denom) ? ink : bone;
 

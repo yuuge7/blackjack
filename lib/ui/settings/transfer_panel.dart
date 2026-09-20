@@ -6,6 +6,7 @@ import '../../design/format.dart';
 import '../../design/tokens.dart';
 import '../../state/day_stats_store.dart';
 import '../../state/game_controller.dart';
+import '../../state/profile_store.dart';
 import '../../state/save_data.dart';
 import '../../state/save_file.dart';
 import '../../state/save_transfer.dart';
@@ -36,6 +37,7 @@ class _TransferPanelState extends State<TransferPanel> {
     final settings = context.read<SettingsStore>();
     final stats = context.read<StatsStore>();
     final days = context.read<DayStatsStore>();
+    final profile = context.read<ProfileStore>();
     final midHand = game.phase != Phase.betting;
     final blocked = midHand || _busyIo;
 
@@ -63,7 +65,7 @@ class _TransferPanelState extends State<TransferPanel> {
                   height: 44,
                   fontSize: 12.5,
                   enabled: !blocked,
-                  onTap: () => _exportFile(game, settings, stats, days),
+                  onTap: () => _exportFile(game, settings, stats, days, profile),
                 ),
               ),
               const SizedBox(width: 10),
@@ -73,7 +75,7 @@ class _TransferPanelState extends State<TransferPanel> {
                   height: 44,
                   fontSize: 12.5,
                   enabled: !blocked,
-                  onTap: () => _importFile(game, settings, stats, days),
+                  onTap: () => _importFile(game, settings, stats, days, profile),
                 ),
               ),
             ],
@@ -136,6 +138,7 @@ class _TransferPanelState extends State<TransferPanel> {
     SettingsStore settings,
     StatsStore stats,
     DayStatsStore days,
+    ProfileStore profile,
   ) async {
     setState(() => _busyIo = true);
     try {
@@ -144,6 +147,7 @@ class _TransferPanelState extends State<TransferPanel> {
         settings: settings,
         stats: stats,
         days: days,
+        profile: profile,
       );
       if (outcome.cancelled) return;
       _toast(
@@ -165,6 +169,7 @@ class _TransferPanelState extends State<TransferPanel> {
     SettingsStore settings,
     StatsStore stats,
     DayStatsStore days,
+    ProfileStore profile,
   ) async {
     setState(() => _busyIo = true);
     StagedSave? staged;
@@ -198,6 +203,7 @@ class _TransferPanelState extends State<TransferPanel> {
         settings: settings,
         stats: stats,
         days: days,
+        profile: profile,
         mergeCalendar: choice == _RestoreChoice.merge,
       );
       _toast(

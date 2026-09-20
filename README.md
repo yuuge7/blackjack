@@ -33,6 +33,11 @@ The point is the record, not the chips:
   6:5 versus 3:2, double-after-split, resplit aces, late surrender. The house
   edge shown on the rules screen is computed from what you have selected, and
   the strategy chart the coach uses changes with it.
+- **Your own table, at any stakes.** The house-rules table takes whatever
+  minimum and maximum you type, from one chip up, and you can type an exact bet
+  instead of stacking chips to reach it.
+- **A profile that levels.** Experience comes mostly from playing the chart
+  correctly, a little from turning up, and least of all from winning.
 - **A calendar of every day you have played.** Not a total — a day-by-day
   ledger that goes back as far as you have been playing, including what you did
   on this date in previous years.
@@ -44,9 +49,9 @@ analytics. The only way data leaves the device is a file you export yourself.
 
 ## Screens
 
-| Table | Stats | Days | Rules |
-| --- | --- | --- | --- |
-| The felt. Bet, deal, play, with the coach on or off. | Session and lifetime records, the leak list, the bankroll curve. | Month grid and year heatmap, with per-day, per-month and per-year totals. | Table selection, house rules, the strategy chart, import and export. |
+| Table | Stats | Days | You | Rules |
+| --- | --- | --- | --- | --- |
+| The felt. Bet, deal, play, with the coach on or off. | Session and lifetime records, the leak list, the bankroll curve. | Month grid and year heatmap, with per-day, per-month and per-year totals. | Level, rank, where the XP came from, badges, career totals. | Tables and stakes, house rules, the strategy chart, import and export. |
 
 ## Install
 
@@ -89,14 +94,65 @@ What you get out of it:
 - **Streaks** — how many consecutive days you have played, counted back from
   today.
 
+## Your own table
+
+Five of the six tables belong to the floor: fixed limits, fixed conditions, and
+a seating minimum you have to build a bankroll to clear. The sixth is yours.
+
+At the house-rules table you set the **minimum and maximum yourself**, from a
+single chip up to a billion. Two things that could otherwise break around an
+arbitrary limit, and do not:
+
+- **The rack.** Four denominations is as many as fit across the dock, so it
+  starts at the largest chip your minimum can cover and works up. A
+  1,000-minimum table racks 1K/5K/25K/100K rather than asking you to tap a
+  5-chip two hundred times. Anything the rack cannot stack exactly, you type
+  from the keypad beside the chips — `Min`, `Max`, `Double` and `Half` are one
+  tap each.
+- **Getting stuck.** Set a 50,000 minimum against a 100-chip bankroll and a
+  flat 200-chip marker would leave you asking for another one forever. At your
+  own table the marker scales to cover a few hands at the limit you set, so a
+  session still cannot dead-end.
+
+## Levels
+
+The **You** tab holds a level, a rank and a set of badges. All of it is
+*derived* from the records the other tabs already keep. There is no separate
+progress file, so nothing can drift out of step with your stats, and a save
+restored onto a new phone arrives already carrying the right level.
+
+Experience is weighted towards skill, deliberately:
+
+| Source | Worth |
+| --- | --- |
+| Every round dealt | 12 XP |
+| Every decision that matched the chart | 4 XP |
+| Every day you sat down | 20 XP |
+| Every table on the ladder you reached | 250 XP |
+| Winnings | 1 XP per 50 chips up |
+
+A lucky shoe is worth very little. Four hundred careful rounds beat a hundred
+lucky ones, and the profile shows the split so you can see which you have been
+doing. Losing money costs nothing: the winnings line floors at zero rather than
+taking experience back off you.
+
+Levels follow a quadratic curve — level 2 at 500 XP, level 10 at 13,500, level
+20 at 52,250 — with ten **ranks** sitting on top of it, from *Walk-in* at level
+1 to *Floor Legend* at level 60. Fifteen **badges** cover volume, accuracy,
+streaks and bankroll. The accuracy ones carry their own sample-size
+requirement, so "95% accurate" needs 500 decisions behind it before it counts.
+
 ## Save files
 
 Export writes a `.bjsave`: **gzipped newline-delimited JSON**, one record per
-line, one line per year of calendar history.
+line, one line per year of calendar history. It carries your bankroll, the
+stakes at your own table, your rules, your profile, your lifetime record and
+your whole calendar.
 
 ```text
-{"t":"bj","v":2,"app":"blackjack-save","saved":"2026-09-20T22:14:03.221"}
+{"t":"bj","v":3,"app":"blackjack-save","saved":"2026-09-20T22:14:03.221"}
 {"t":"core","bankroll":4200,"bet":25}
+{"t":"profile","d":{"name":"Ionel","peak":48200}}
 {"t":"settings","d":{…}}
 {"t":"stats","d":{…}}
 {"t":"days","y":2025,"d":{"0101":[…],"0102":[…]}}
@@ -120,8 +176,10 @@ tell you exactly what is in a file before anything is overwritten.
   larger of the two rather than double-counting one evening.
 - **Replace everything** — the file wins outright.
 
-Your bankroll, rules and lifetime record are replaced either way; there is no
-sensible way to average two of them.
+Your bankroll, rules, profile and lifetime record are replaced either way;
+there is no sensible way to average two of them. Files written by an older
+version still import — a save with no profile record in it simply restores
+without one.
 
 There is also a **short code** — the same save minus the calendar, small enough
 to paste into a message, for hopping between two devices in one sitting.
@@ -162,7 +220,8 @@ flutter test
 Both must pass before anything is released — the release workflow gates on
 them. The suite covers the shoe and the dealer, basic strategy against the
 chart, the money arithmetic of a settled round, the calendar's storage and
-aggregation, and save-file round trips including a ten-year history.
+aggregation, the level curve and its inverse at every boundary, arbitrary
+table limits, and save-file round trips including a ten-year history.
 
 ### Regenerating the app icon
 
@@ -340,8 +399,12 @@ A few things worth knowing before you start:
   variation to `lib/model/rules.dart`, `lib/engine/basic_strategy.dart` has to
   answer to it, and the house-edge estimate on the rules screen should move.
 - **Stats are recorded in exactly one place.** `StatsStore` fans a round out to
-  the session total, the lifetime total and the calendar. Do not record
-  directly from the game controller.
+  the session total, the lifetime total, the calendar, and the profile's
+  bankroll high-water mark. Do not record directly from the game controller.
+- **The profile is derived, never stored.** `Profile.of` computes level, rank
+  and badges from the lifetime record and the calendar. Only the player's name
+  and their peak bankroll are persisted, because neither is implied by
+  anything else.
 - **Day storage is append-only.** `DayStats.toList()` has a fixed field order;
   new counters go on the end. A shorter list is an older save and reads as
   zeros, a longer one came from a newer build and the tail is ignored. Never
@@ -356,16 +419,18 @@ A few things worth knowing before you start:
 lib/
 ├── design/        tokens, theme, number formatting
 ├── engine/        basic strategy
-├── model/         cards, hands, shoe, rules, tables, stats, day stats
+├── model/         cards, hands, shoe, rules, tables, stats, days, profile
 ├── state/         controllers and stores, save file format and transfer
 └── ui/
     ├── calendar/  month grid, year heatmap, day sheet
-    ├── common/    shared controls
-    ├── settings/  rules, tables, strategy chart, import and export
+    ├── common/    shared controls, the amount keypad
+    ├── profile/   level, rank, badges, career
+    ├── settings/  rules, stakes, tables, strategy chart, import and export
     ├── stats/     session and lifetime records
     └── table/     the felt
 tool/              icon generation
-test/              engine, game, progression, calendar, save files, widgets
+test/              engine, game, progression, calendar, profile, custom
+                   tables, save files, widgets
 ```
 
 ## Licence

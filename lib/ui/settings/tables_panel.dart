@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../design/format.dart';
 import '../../design/tokens.dart';
-import '../../model/rules.dart';
 import '../../model/table_tier.dart';
 import '../stats/stat_tile.dart';
 import '../table/chip.dart';
@@ -13,14 +12,18 @@ class TablesPanel extends StatelessWidget {
   const TablesPanel({
     required this.bankroll,
     required this.currentId,
-    required this.customRules,
+    required this.customTier,
     required this.onPick,
     super.key,
   });
 
   final int bankroll;
   final String currentId;
-  final RuleSet customRules;
+
+  /// The house-rules table as it currently stands — its limits are whatever
+  /// you last typed, so it cannot be read off the constant ladder.
+  final TableTier customTier;
+
   final ValueChanged<String> onPick;
 
   @override
@@ -30,16 +33,19 @@ class TablesPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final t in kTiers) ...[
-          _TableRow(
-            tier: t,
-            edge: (t.isCustom ? customRules : t.rules).houseEdge,
-            seated: t.id == currentId,
-            locked: bankroll < t.sitMin,
-            shortBy: t.sitMin - bankroll,
-            onTap: () => onPick(t.id),
-          ),
-          if (t != kTiers.last) const SizedBox(height: 8),
+        for (final row in kTiers) ...[
+          () {
+            final t = row.isCustom ? customTier : row;
+            return _TableRow(
+              tier: t,
+              edge: t.rules.houseEdge,
+              seated: t.id == currentId,
+              locked: bankroll < t.sitMin,
+              shortBy: t.sitMin - bankroll,
+              onTap: () => onPick(t.id),
+            );
+          }(),
+          if (row != kTiers.last) const SizedBox(height: 8),
         ],
         if (next != null) ...[
           const SizedBox(height: 16),
@@ -197,7 +203,7 @@ Future<void> showTablePicker(
   BuildContext context, {
   required int bankroll,
   required String currentId,
-  required RuleSet customRules,
+  required TableTier customTier,
   required ValueChanged<String> onPick,
 }) {
   return showModalBottomSheet<void>(
@@ -236,7 +242,7 @@ Future<void> showTablePicker(
               TablesPanel(
                 bankroll: bankroll,
                 currentId: currentId,
-                customRules: customRules,
+                customTier: customTier,
                 onPick: (id) {
                   onPick(id);
                   Navigator.of(ctx).pop();

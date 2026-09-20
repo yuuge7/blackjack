@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 
 import 'day_stats_store.dart';
 import 'game_controller.dart';
+import 'profile_store.dart';
 import 'save_file.dart';
 import 'settings_store.dart';
 import 'stats_store.dart';
@@ -31,6 +32,7 @@ class SaveTransfer {
     required SettingsStore settings,
     required StatsStore stats,
     required DayStatsStore days,
+    required ProfileStore profile,
   }) async {
     final name = SaveFile.suggestedName();
 
@@ -46,6 +48,7 @@ class SaveTransfer {
         settings: settings,
         stats: stats,
         days: days,
+        profile: profile,
       );
       return ExportOutcome.saved(name: name, bytes: bytes, where: folder);
     }
@@ -61,6 +64,7 @@ class SaveTransfer {
       settings: settings,
       stats: stats,
       days: days,
+      profile: profile,
     );
 
     final result = await SharePlus.instance.share(
@@ -120,6 +124,7 @@ class SaveTransfer {
     required SettingsStore settings,
     required StatsStore stats,
     required DayStatsStore days,
+    required ProfileStore profile,
     required bool mergeCalendar,
   }) async {
     await SaveFile.restore(
@@ -128,6 +133,7 @@ class SaveTransfer {
       settings: settings,
       stats: stats,
       days: days,
+      profile: profile,
       mergeCalendar: mergeCalendar,
     );
     await discard(staged.file);

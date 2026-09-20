@@ -5,6 +5,7 @@ import '../model/day_stats.dart';
 import '../model/stats.dart';
 import 'day_stats_store.dart';
 import 'game_controller.dart';
+import 'profile_store.dart';
 import 'settings_store.dart';
 import 'stats_store.dart';
 
@@ -18,6 +19,7 @@ import 'stats_store.dart';
 /// ```text
 /// {"t":"bj","v":2,"app":"blackjack-save","saved":"2026-09-20T…"}
 /// {"t":"core","bankroll":4200,"bet":25}
+/// {"t":"profile","d":{"name":"Ionel","peak":48200}}
 /// {"t":"settings","d":{…}}
 /// {"t":"stats","d":{…}}
 /// {"t":"days","y":2025,"d":{"0101":[…],"0102":[…]}}
@@ -31,7 +33,7 @@ class SaveFile {
   static const String magic = 'blackjack-save';
 
   /// Bumped only when a reader written today could not make sense of the file.
-  static const int version = 2;
+  static const int version = 3;
 
   /// Level 6 rather than 9: a year of play compresses to within a few percent
   /// of best either way, and 6 keeps the export instant on a phone.
@@ -49,15 +51,20 @@ class SaveFile {
     required SettingsStore settings,
     required StatsStore stats,
     required DayStatsStore days,
+    required ProfileStore profile,
   }) async {
     // Both stores debounce their writes; an export has to see the last round.
     stats.flush();
     days.flush();
 
     await target.parent.create(recursive: true);
-    await _lines(game: game, settings: settings, stats: stats, days: days)
-        .transform(_gzip.encoder)
-        .pipe(target.openWrite());
+    await _lines(
+      game: game,
+      settings: settings,
+      stats: stats,
+      days: days,
+      profile: profile,
+    ).transform(_gzip.encoder).pipe(target.openWrite());
     return target.length();
   }
 
@@ -66,6 +73,7 @@ class SaveFile {
     required SettingsStore settings,
     required StatsStore stats,
     required DayStatsStore days,
+    required ProfileStore profile,
   }) async* {
     List<int> line(Map<String, dynamic> record) => utf8.encode('${jsonEncode(record)}\n');
 
@@ -76,6 +84,7 @@ class SaveFile {
       'saved': DateTime.now().toIso8601String(),
     });
     yield line({'t': 'core', 'bankroll': game.bankroll, 'bet': game.bet});
+    yield line({'t': 'profile', 'd': profile.toJson()});
     yield line({'t': 'settings', 'd': settings.toJson()});
     yield line({'t': 'stats', 'd': stats.lifetime.toJson()});
 
@@ -113,6 +122,8 @@ class SaveFile {
     var bankroll = kOpeningStake;
     var bet = 25;
     var stats = StatsData();
+    var playerName = '';
+    var peakBankroll = 0;
     var dayCount = 0;
     var dayRounds = 0;
     var dayNet = 0;
@@ -144,6 +155,12 @@ class SaveFile {
           case 'core':
             bankroll = (r['bankroll'] as num?)?.toInt() ?? bankroll;
             bet = (r['bet'] as num?)?.toInt() ?? bet;
+          case 'profile':
+            final d = r['d'];
+            if (d is Map<String, dynamic>) {
+              playerName = d['name'] as String? ?? '';
+              peakBankroll = (d['peak'] as num?)?.toInt() ?? 0;
+            }
           case 'stats':
             final d = r['d'];
             if (d is Map<String, dynamic>) stats = StatsData.fromJson(d);
@@ -186,6 +203,8 @@ class SaveFile {
       bankroll: bankroll,
       bet: bet,
       stats: stats,
+      playerName: playerName,
+      peakBankroll: peakBankroll,
       dayCount: dayCount,
       dayRounds: dayRounds,
       dayNet: dayNet,
@@ -209,6 +228,7 @@ class SaveFile {
     required SettingsStore settings,
     required StatsStore stats,
     required DayStatsStore days,
+    required ProfileStore profile,
     required bool mergeCalendar,
   }) async {
     if (!mergeCalendar) days.clear();
@@ -221,6 +241,9 @@ class SaveFile {
         case 'core':
           bankroll = (r['bankroll'] as num?)?.toInt() ?? bankroll;
           bet = (r['bet'] as num?)?.toInt() ?? bet;
+        case 'profile':
+          final d = r['d'];
+          if (d is Map<String, dynamic>) profile.applyImported(d);
         case 'settings':
           final d = r['d'];
           if (d is Map<String, dynamic>) settings.applyImported(d);
@@ -250,6 +273,8 @@ class SaveSummary {
     required this.bankroll,
     required this.bet,
     required this.stats,
+    required this.playerName,
+    required this.peakBankroll,
     required this.dayCount,
     required this.dayRounds,
     required this.dayNet,
@@ -263,6 +288,11 @@ class SaveSummary {
   final int bankroll;
   final int bet;
   final StatsData stats;
+
+  /// Empty on a v2 file, which predates the profile.
+  final String playerName;
+  final int peakBankroll;
+
   final int dayCount;
   final int dayRounds;
   final int dayNet;

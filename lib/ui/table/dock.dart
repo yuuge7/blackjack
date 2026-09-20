@@ -4,6 +4,7 @@ import '../../design/format.dart';
 import '../../design/tokens.dart';
 import '../../engine/basic_strategy.dart';
 import '../../state/game_controller.dart';
+import '../common/amount_sheet.dart';
 import '../common/table_button.dart';
 import 'chip.dart';
 
@@ -157,6 +158,10 @@ class _BetControls extends StatelessWidget {
                     game.bet + denom <= game.tier.max,
                 onTap: () => game.addChip(denom),
               ),
+            // Four denominations cannot stack every number, and at your own
+            // table the limits can be anything at all, so the exact amount is
+            // always one tap away.
+            _TypeBetButton(game: game),
           ],
         ),
         Row(
@@ -199,6 +204,68 @@ class _BetControls extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Opens the number pad for an exact bet.
+class _TypeBetButton extends StatelessWidget {
+  const _TypeBetButton({required this.game});
+
+  final GameController game;
+
+  @override
+  Widget build(BuildContext context) {
+    final ceiling = game.maxBet;
+    final floor = game.tier.min;
+    final enabled = ceiling >= floor && ceiling > 0;
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: 'Type an exact bet',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? () => _open(context) : null,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.28,
+          child: Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: AppColor.railHi,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColor.line, width: 1.5),
+            ),
+            child: const Icon(Icons.dialpad_rounded, size: 18, color: AppColor.boneMid),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final floor = game.tier.min;
+    final ceiling = game.maxBet;
+    final current = game.bet;
+
+    final picked = await askAmount(
+      context,
+      title: 'Your bet',
+      initial: current > 0 ? current : floor,
+      min: floor,
+      max: ceiling,
+      confirm: 'Bet it',
+      note: 'This table takes ${chips(floor)} to ${chips(game.tier.max)}. '
+          'You have ${chips(game.bankroll)}.',
+      presets: [
+        AmountPreset('Min', floor),
+        AmountPreset('Max', ceiling),
+        if (current > 0) AmountPreset('Double', current * 2),
+        if (current > 1) AmountPreset('Half', current ~/ 2),
+        AmountPreset('All in', ceiling),
+      ],
+    );
+    if (picked != null) game.setBet(picked);
   }
 }
 

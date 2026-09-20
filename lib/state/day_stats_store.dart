@@ -34,6 +34,10 @@ class DayStatsStore extends ChangeNotifier {
 
   Timer? _saveTimer;
 
+  /// Counting played days means walking every year, and the profile asks for
+  /// it on every rebuild, so the answer is kept until something changes it.
+  int? _daysPlayed;
+
   /// The day this run of the app has already been counted against, so a long
   /// evening is one session and not one per round.
   DateTime? _countedSession;
@@ -44,6 +48,20 @@ class DayStatsStore extends ChangeNotifier {
 
   /// Every year with something in it, oldest first.
   List<int> get years => _years.toList()..sort();
+
+  /// How many separate days have ever been played. Cached; see [_daysPlayed].
+  int get daysPlayed {
+    var cached = _daysPlayed;
+    if (cached != null) return cached;
+    cached = 0;
+    for (final y in years) {
+      for (final day in _yearMap(y).values) {
+        if (day.isNotEmpty) cached = cached! + 1;
+      }
+    }
+    _daysPlayed = cached;
+    return cached!;
+  }
 
   bool get isEmpty => _years.isEmpty;
 
@@ -149,7 +167,10 @@ class DayStatsStore extends ChangeNotifier {
   DayStats _today() {
     final today = dayOf(now());
     final map = _yearMap(today.year);
-    final entry = map.putIfAbsent(dayKey(today.month, today.day), DayStats.new);
+    final key = dayKey(today.month, today.day);
+    final firstRoundToday = !map.containsKey(key);
+    final entry = map.putIfAbsent(key, DayStats.new);
+    if (firstRoundToday) _daysPlayed = null;
     if (_years.add(today.year)) _writeIndex();
     if (_countedSession != today) {
       _countedSession = today;
@@ -225,6 +246,7 @@ class DayStatsStore extends ChangeNotifier {
     });
 
     if (map.isNotEmpty) _years.add(y);
+    _daysPlayed = null;
     _dirty.add(y);
     _writeIndex();
     _schedule();
@@ -238,6 +260,7 @@ class DayStatsStore extends ChangeNotifier {
     _years.clear();
     _cache.clear();
     _dirty.clear();
+    _daysPlayed = null;
     _countedSession = null;
     _prefs.remove(_indexKey);
     notifyListeners();

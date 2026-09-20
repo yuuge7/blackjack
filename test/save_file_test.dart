@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:blackjack/model/day_stats.dart';
 import 'package:blackjack/state/day_stats_store.dart';
 import 'package:blackjack/state/game_controller.dart';
+import 'package:blackjack/state/profile_store.dart';
 import 'package:blackjack/state/save_file.dart';
 import 'package:blackjack/state/settings_store.dart';
 import 'package:blackjack/state/stats_store.dart';
@@ -17,6 +19,7 @@ class Rig {
     required this.days,
     required this.stats,
     required this.game,
+    required this.profile,
   });
 
   final SharedPreferences prefs;
@@ -24,15 +27,24 @@ class Rig {
   final DayStatsStore days;
   final StatsStore stats;
   final GameController game;
+  final ProfileStore profile;
 
   static Future<Rig> build({Map<String, Object> seed = const {}}) async {
     SharedPreferences.setMockInitialValues({'haptics': false, ...seed});
     final prefs = await SharedPreferences.getInstance();
     final settings = SettingsStore(prefs);
     final days = DayStatsStore(prefs);
-    final stats = StatsStore(prefs, days: days);
+    final profile = ProfileStore(prefs);
+    final stats = StatsStore(prefs, days: days, profile: profile);
     final game = GameController(settings: settings, stats: stats, prefs: prefs);
-    return Rig(prefs: prefs, settings: settings, days: days, stats: stats, game: game);
+    return Rig(
+      prefs: prefs,
+      settings: settings,
+      days: days,
+      stats: stats,
+      game: game,
+      profile: profile,
+    );
   }
 }
 
@@ -53,6 +65,9 @@ void main() {
     source.stats.recordDecision('16 v 10', true, 'Hit');
     source.settings.setCoach(false);
     source.settings.setShowCount(true);
+    source.settings.setCustomLimits(min: 250, max: 750000);
+    source.profile.setName('Ionel');
+    source.profile.noteBankroll(48200);
 
     final file = scratch('save.bjsave');
     final bytes = await SaveFile.write(
@@ -61,6 +76,7 @@ void main() {
       settings: source.settings,
       stats: source.stats,
       days: source.days,
+      profile: source.profile,
     );
     expect(bytes, greaterThan(0));
     expect(file.existsSync(), isTrue);
@@ -74,6 +90,8 @@ void main() {
     expect(summary.dayNet, 175);
     expect(summary.firstYear, 2026);
     expect(summary.savedAt, isNotNull);
+    expect(summary.playerName, 'Ionel');
+    expect(summary.peakBankroll, 48200);
 
     final target = await Rig.build();
     await SaveFile.restore(
@@ -82,6 +100,7 @@ void main() {
       settings: target.settings,
       stats: target.stats,
       days: target.days,
+      profile: target.profile,
       mergeCalendar: false,
     );
 
@@ -91,6 +110,12 @@ void main() {
     expect(target.settings.coach, isFalse);
     expect(target.settings.showCount, isTrue);
     expect(target.days.day(DateTime(2026, 9, 20))!.net, 175);
+
+    // The profile and the stakes at your own table ride along with the save.
+    expect(target.profile.name, 'Ionel');
+    expect(target.profile.peakBankroll, 48200);
+    expect(target.settings.customMin, 250);
+    expect(target.settings.customMax, 750000);
   });
 
   test('restoring without merge drops whatever calendar was already here',
@@ -106,6 +131,7 @@ void main() {
       settings: source.settings,
       stats: source.stats,
       days: source.days,
+      profile: source.profile,
     );
 
     final target = await Rig.build();
@@ -118,6 +144,7 @@ void main() {
       settings: target.settings,
       stats: target.stats,
       days: target.days,
+      profile: target.profile,
       mergeCalendar: false,
     );
 
@@ -138,6 +165,7 @@ void main() {
       settings: source.settings,
       stats: source.stats,
       days: source.days,
+      profile: source.profile,
     );
 
     final target = await Rig.build();
@@ -152,6 +180,7 @@ void main() {
       settings: target.settings,
       stats: target.stats,
       days: target.days,
+      profile: target.profile,
       mergeCalendar: true,
     );
 
@@ -193,6 +222,7 @@ void main() {
       settings: source.settings,
       stats: source.stats,
       days: source.days,
+      profile: source.profile,
     );
 
     // Gzipped, ten years of daily play is a rounding error of a file. The
@@ -213,6 +243,7 @@ void main() {
       settings: target.settings,
       stats: target.stats,
       days: target.days,
+      profile: target.profile,
       mergeCalendar: false,
     );
 
@@ -274,6 +305,7 @@ void main() {
         settings: source.settings,
         stats: source.stats,
         days: source.days,
+        profile: source.profile,
       );
 
       final bytes = whole.readAsBytesSync();
@@ -282,6 +314,43 @@ void main() {
 
       expect(() => SaveFile.inspect(cut), throwsA(isA<SaveFileError>()));
     });
+  });
+
+  test('a v2 file from before the profile still imports', () async {
+    // Hand-built rather than round-tripped: the point is a file with no
+    // profile record at all, which is every save written before this version.
+    final file = scratch('legacy.bjsave');
+    const lines = [
+      '{"t":"bj","v":2,"app":"blackjack-save","saved":"2026-01-01T00:00:00.000"}',
+      '{"t":"core","bankroll":3000,"bet":40}',
+      '{"t":"stats","d":{"rounds":12,"net":500}}',
+      '{"t":"days","y":2026,"d":{"0101":[5,5,3,2,0,0,0,0,0,0,0,0,0,250,100]}}',
+    ];
+
+    await Stream<List<int>>.value(utf8.encode('${lines.join('\n')}\n'))
+        .transform(GZipCodec().encoder)
+        .pipe(file.openWrite());
+
+    final summary = await SaveFile.inspect(file);
+    expect(summary.version, 2);
+    expect(summary.playerName, '');
+    expect(summary.peakBankroll, 0);
+    expect(summary.dayCount, 1);
+
+    final target = await Rig.build();
+    await SaveFile.restore(
+      file,
+      game: target.game,
+      settings: target.settings,
+      stats: target.stats,
+      days: target.days,
+      profile: target.profile,
+      mergeCalendar: false,
+    );
+
+    expect(target.game.bankroll, 3000);
+    expect(target.stats.lifetime.rounds, 12);
+    expect(target.profile.hasName, isFalse);
   });
 
   test('the suggested name carries the date and our extension', () {

@@ -7,6 +7,7 @@ import '../../model/rules.dart';
 import '../../model/table_tier.dart';
 import '../../state/game_controller.dart';
 import '../../state/settings_store.dart';
+import '../common/amount_sheet.dart';
 import '../stats/stat_tile.dart';
 import 'strategy_chart.dart';
 import 'tables_panel.dart';
@@ -34,7 +35,7 @@ class RulesScreen extends StatelessWidget {
           child: TablesPanel(
             bankroll: game.bankroll,
             currentId: settings.tier.id,
-            customRules: settings.customRules,
+            customTier: settings.customTier,
             onPick: settings.setTier,
           ),
         ),
@@ -55,6 +56,8 @@ class RulesScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _Stakes(settings: settings, editable: editable),
+              const _Rule(),
               _Options<int>(
                 label: 'Decks in the shoe',
                 value: r.decks,
@@ -185,6 +188,159 @@ class RulesScreen extends StatelessWidget {
         const _Header('Moving your save'),
         const TransferPanel(),
       ],
+    );
+  }
+}
+
+/// The stakes at your own table. Preset tables post limits the floor sets, so
+/// this is the one table where the numbers are yours to type.
+class _Stakes extends StatelessWidget {
+  const _Stakes({required this.settings, required this.editable});
+
+  final SettingsStore settings;
+  final bool editable;
+
+  @override
+  Widget build(BuildContext context) {
+    final tier = settings.tier;
+    final min = settings.customMin;
+    final max = settings.customMax;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _AmountField(
+                label: 'Table minimum',
+                value: min,
+                onTap: () async {
+                  final picked = await askAmount(
+                    context,
+                    title: 'Table minimum',
+                    initial: min,
+                    min: kMinStake,
+                    max: kMaxStake,
+                    note: 'The smallest bet your table will take. Raising it above '
+                        'the maximum pushes the maximum up with it.',
+                    presets: const [
+                      AmountPreset('1', 1),
+                      AmountPreset('5', 5),
+                      AmountPreset('25', 25),
+                      AmountPreset('100', 100),
+                      AmountPreset('1K', 1000),
+                      AmountPreset('25K', 25000),
+                    ],
+                  );
+                  if (picked != null) settings.setCustomLimits(min: picked);
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _AmountField(
+                label: 'Table maximum',
+                value: max,
+                onTap: () async {
+                  final picked = await askAmount(
+                    context,
+                    title: 'Table maximum',
+                    initial: max,
+                    min: min,
+                    max: kMaxStake,
+                    note: 'The biggest bet your table will take, up to '
+                        '${chips(kMaxStake)}.',
+                    presets: [
+                      const AmountPreset('500', 500),
+                      const AmountPreset('2.5K', 2500),
+                      const AmountPreset('10K', 10000),
+                      const AmountPreset('100K', 100000),
+                      const AmountPreset('1M', 1000000),
+                      AmountPreset('100×', min * 100),
+                    ],
+                  );
+                  if (picked != null) settings.setCustomLimits(max: picked);
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Text('RACK', style: AppText.eyebrow(7.5)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                tier.chips.map(chipFace).join('  ·  '),
+                style: AppText.mono(11, color: AppColor.amber),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        Text(
+          editable
+              ? 'The rack follows your limits. Any amount the chips will not '
+                  'stack exactly, you can type at the table.'
+              : 'These are the stakes at your own table. Sit there to change them.',
+          style: AppText.ui(10.5, color: AppColor.slate, height: 1.35),
+        ),
+      ],
+    );
+  }
+}
+
+/// A tappable read-out that opens the number pad.
+class _AmountField extends StatelessWidget {
+  const _AmountField({required this.label, required this.value, required this.onTap});
+
+  final String label;
+  final int value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '$label, currently ${chips(value)}',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 9, 12, 10),
+          decoration: BoxDecoration(
+            color: AppColor.railHi,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColor.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label.toUpperCase(), style: AppText.eyebrow(7.5)),
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        chips(value),
+                        style: AppText.display(24, weight: 700, height: 0.9),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.edit_outlined, size: 13, color: AppColor.slate),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

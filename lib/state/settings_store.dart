@@ -17,13 +17,28 @@ class SettingsStore extends ChangeNotifier {
 
   String _tierId = kTiers.first.id;
   RuleSet _customRules = const RuleSet();
+  int _customMin = 5;
+  int _customMax = 500;
   bool _coach = true;
   bool _flagMistakes = true;
   bool _showCount = false;
   bool _haptics = true;
   bool _fastDeal = false;
 
-  TableTier get tier => tierById(_tierId);
+  /// The table you are sitting at. The house-rules table is rebuilt from the
+  /// limits you set for it rather than the constant in [kTiers].
+  TableTier get tier => _tierId == 'custom'
+      ? customTierWith(min: _customMin, max: _customMax)
+      : tierById(_tierId);
+
+  /// Stakes at your own table. Anything from [kMinStake] up.
+  int get customMin => _customMin;
+  int get customMax => _customMax;
+
+  /// Your own table as it currently stands, whichever table you are sitting
+  /// at. The tables list needs this to show your limits rather than the
+  /// defaults baked into [kTiers].
+  TableTier get customTier => customTierWith(min: _customMin, max: _customMax);
 
   /// The conditions actually in play: the table's, unless you are at your own.
   RuleSet get rules => tier.isCustom ? _customRules : tier.rules;
@@ -55,6 +70,7 @@ class SettingsStore extends ChangeNotifier {
     }
     _tierId = _prefs.getString('tier') ?? kTiers.first.id;
     if (!kTiers.any((t) => t.id == _tierId)) _tierId = kTiers.first.id;
+    _setLimits(_prefs.getInt('customMin') ?? 5, _prefs.getInt('customMax') ?? 500);
     _coach = _prefs.getBool('coach') ?? true;
     _flagMistakes = _prefs.getBool('flagMistakes') ?? true;
     _showCount = _prefs.getBool('showCount') ?? false;
@@ -67,6 +83,23 @@ class SettingsStore extends ChangeNotifier {
     _tierId = tierById(id).id;
     _prefs.setString('tier', _tierId);
     notifyListeners();
+  }
+
+  /// Sets the stakes at your own table. The two are clamped against each
+  /// other, so a maximum can never end up under its own minimum.
+  void setCustomLimits({int? min, int? max}) {
+    final before = (_customMin, _customMax);
+    _setLimits(min ?? _customMin, max ?? _customMax);
+    if (before == (_customMin, _customMax)) return;
+    _prefs
+      ..setInt('customMin', _customMin)
+      ..setInt('customMax', _customMax);
+    notifyListeners();
+  }
+
+  void _setLimits(int min, int max) {
+    _customMin = min.clamp(kMinStake, kMaxStake);
+    _customMax = max.clamp(_customMin, kMaxStake);
   }
 
   /// Edits the house-rules table. Preset tables post their own conditions.
@@ -91,6 +124,8 @@ class SettingsStore extends ChangeNotifier {
   Map<String, dynamic> toJson() => {
         'tier': _tierId,
         'rules': _customRules.toJson(),
+        'customMin': _customMin,
+        'customMax': _customMax,
         'coach': _coach,
         'flagMistakes': _flagMistakes,
         'showCount': _showCount,
@@ -104,6 +139,10 @@ class SettingsStore extends ChangeNotifier {
     if (tier is String && kTiers.any((t) => t.id == tier)) _tierId = tier;
     final r = j['rules'];
     if (r is Map<String, dynamic>) _customRules = RuleSet.fromJson(r);
+    _setLimits(
+      (j['customMin'] as num?)?.toInt() ?? _customMin,
+      (j['customMax'] as num?)?.toInt() ?? _customMax,
+    );
     _coach = j['coach'] as bool? ?? _coach;
     _flagMistakes = j['flagMistakes'] as bool? ?? _flagMistakes;
     _showCount = j['showCount'] as bool? ?? _showCount;
@@ -113,6 +152,8 @@ class SettingsStore extends ChangeNotifier {
     _prefs
       ..setString('tier', _tierId)
       ..setString('rules', jsonEncode(_customRules.toJson()))
+      ..setInt('customMin', _customMin)
+      ..setInt('customMax', _customMax)
       ..setBool('coach', _coach)
       ..setBool('flagMistakes', _flagMistakes)
       ..setBool('showCount', _showCount)
