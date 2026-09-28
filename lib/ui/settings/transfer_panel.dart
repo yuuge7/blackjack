@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../design/format.dart';
 import '../../design/tokens.dart';
 import '../../state/day_stats_store.dart';
 import '../../state/game_controller.dart';
@@ -14,6 +13,7 @@ import '../../state/settings_store.dart';
 import '../../state/stats_store.dart';
 import '../common/table_button.dart';
 import '../stats/stat_tile.dart';
+import 'restore_dialog.dart';
 
 /// Move a save off this device and back onto another one.
 ///
@@ -185,12 +185,22 @@ class _TransferPanelState extends State<TransferPanel> {
 
     if (staged == null || !mounted) return;
 
-    final choice = await showDialog<_RestoreChoice>(
+    final choice = await showDialog<RestoreChoice>(
       context: context,
-      builder: (ctx) => _RestoreDialog(staged: staged!),
+      builder: (ctx) => RestoreDialog(
+        staged: staged!,
+        onDownload: () => SaveTransfer.download(
+          game: game,
+          settings: settings,
+          stats: stats,
+          days: days,
+          profile: profile,
+          name: SaveFile.backupName(),
+        ),
+      ),
     );
 
-    if (choice == null || choice == _RestoreChoice.cancel) {
+    if (choice == null || choice == RestoreChoice.cancel) {
       await SaveTransfer.discard(staged.file);
       return;
     }
@@ -204,10 +214,10 @@ class _TransferPanelState extends State<TransferPanel> {
         stats: stats,
         days: days,
         profile: profile,
-        mergeCalendar: choice == _RestoreChoice.merge,
+        mergeCalendar: choice == RestoreChoice.merge,
       );
       _toast(
-        choice == _RestoreChoice.merge
+        choice == RestoreChoice.merge
             ? 'Save restored, calendar merged.'
             : 'Save restored.',
       );
@@ -286,88 +296,4 @@ class _TransferPanelState extends State<TransferPanel> {
       _toast('Save restored.');
     }
   }
-}
-
-enum _RestoreChoice { cancel, merge, replace }
-
-/// What is in the file, and the one decision that actually matters: whether
-/// the calendar already on this device survives.
-class _RestoreDialog extends StatelessWidget {
-  const _RestoreDialog({required this.staged});
-
-  final StagedSave staged;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = staged.summary;
-
-    return AlertDialog(
-      backgroundColor: AppColor.rail,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text('Restore this save?', style: AppText.ui(16, weight: 600)),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              staged.name,
-              style: AppText.mono(10.5, color: AppColor.slate),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 12),
-            Text('THIS FILE HOLDS', style: AppText.eyebrow(7.5)),
-            const SizedBox(height: 6),
-            _Line('${chips(s.bankroll)} chips'),
-            _Line('${chips(s.stats.rounds)} rounds · ${chips(s.stats.decisions)} decisions'),
-            _Line(s.calendarSpan),
-            if (s.dayCount > 0)
-              _Line('${chips(s.dayRounds)} rounds on the calendar · '
-                  '${signedChips(s.dayNet)} net'),
-            _Line('Saved ${s.savedOn} · ${s.sizeLabel}'),
-            const SizedBox(height: 12),
-            Text(
-              'Your bankroll, rules and lifetime record are replaced either way. '
-              'Choose what happens to the calendar.',
-              style: AppText.ui(11.5, color: AppColor.boneMid, height: 1.4),
-            ),
-          ],
-        ),
-      ),
-      actionsOverflowDirection: VerticalDirection.down,
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, _RestoreChoice.cancel),
-          child: Text('Cancel', style: AppText.ui(13, color: AppColor.boneMid)),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, _RestoreChoice.merge),
-          child: Text(
-            'Merge days',
-            style: AppText.ui(13, weight: 600, color: AppColor.jade),
-          ),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, _RestoreChoice.replace),
-          child: Text(
-            'Replace everything',
-            style: AppText.ui(13, weight: 600, color: AppColor.clay),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Line extends StatelessWidget {
-  const _Line(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 3),
-        child: Text(text, style: AppText.mono(11, color: AppColor.jade, height: 1.4)),
-      );
 }

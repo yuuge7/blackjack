@@ -42,6 +42,12 @@ class SaveFile {
   static String suggestedName([DateTime? at]) =>
       'blackjack-${isoDay(at ?? DateTime.now())}.$extension';
 
+  /// Named apart from a plain export so the copy taken before an import is
+  /// never mistaken for — or overwritten by — the file being imported, which
+  /// is often that same day's export from another device.
+  static String backupName([DateTime? at]) =>
+      'blackjack-${isoDay(at ?? DateTime.now())}-before-import.$extension';
+
   // --- writing -------------------------------------------------------------
 
   /// Streams the current save into [target] and returns its size in bytes.

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -18,12 +19,19 @@ import 'stats_store.dart';
 /// only way to reach Drive, Files, a mail app or another phone. On a desktop
 /// the user picks a folder and the file is streamed straight into it.
 ///
-/// Both routes stream. Neither ever materialises the save as one buffer, so
+/// [download] is the third route, for keeping a copy on the device itself:
+/// on Android it opens the system's save dialog instead of the share sheet.
+///
+/// Every route streams. None ever materialises the save as one buffer, so
 /// the size of a player's history is not a limit on exporting it.
 class SaveTransfer {
   const SaveTransfer._();
 
   static bool get _isMobile => Platform.isAndroid || Platform.isIOS;
+
+  /// Answered by `MainActivity.kt`. file_picker's own `saveFile` wants the
+  /// whole file as bytes, which is exactly what the format exists to avoid.
+  static const MethodChannel _channel = MethodChannel('dev.ionel.blackjack/save');
 
   // --- export --------------------------------------------------------------
 
@@ -37,35 +45,13 @@ class SaveTransfer {
     final name = SaveFile.suggestedName();
 
     if (!_isMobile) {
-      final folder = await FilePicker.getDirectoryPath(
-        dialogTitle: 'Where should the save go?',
-      );
-      if (folder == null) return const ExportOutcome.cancelled();
-      final target = File('$folder${Platform.pathSeparator}$name');
-      final bytes = await SaveFile.write(
-        target,
-        game: game,
-        settings: settings,
-        stats: stats,
-        days: days,
-        profile: profile,
-      );
-      return ExportOutcome.saved(name: name, bytes: bytes, where: folder);
+      return _toFolder(name,
+          game: game, settings: settings, stats: stats, days: days, profile: profile);
     }
 
-    // The share sheet needs a real file it can hand to another app, and the
-    // cache directory is the one place this app can always write to.
-    final dir = await getTemporaryDirectory();
-    final staging = Directory('${dir.path}${Platform.pathSeparator}exports');
-    final target = File('${staging.path}${Platform.pathSeparator}$name');
-    final bytes = await SaveFile.write(
-      target,
-      game: game,
-      settings: settings,
-      stats: stats,
-      days: days,
-      profile: profile,
-    );
+    final target = await _stage(name,
+        game: game, settings: settings, stats: stats, days: days, profile: profile);
+    final bytes = await target.length();
 
     final result = await SharePlus.instance.share(
       ShareParams(
@@ -80,6 +66,103 @@ class SaveTransfer {
       return const ExportOutcome.cancelled();
     }
     return ExportOutcome.saved(name: name, bytes: bytes, where: null);
+  }
+
+  /// Keeps a copy of the current save on this device — the safety net before
+  /// an import overwrites it.
+  ///
+  /// On Android the share sheet is the wrong tool for this: plenty of phones
+  /// offer no "save to device" target in it at all. The system save dialog
+  /// always does, and the player picks the folder.
+  static Future<ExportOutcome> download({
+    required GameController game,
+    required SettingsStore settings,
+    required StatsStore stats,
+    required DayStatsStore days,
+    required ProfileStore profile,
+    String? name,
+  }) async {
+    final wanted = name ?? SaveFile.suggestedName();
+
+    if (!Platform.isAndroid) {
+      return _isMobile
+          ? export(game: game, settings: settings, stats: stats, days: days, profile: profile)
+          : _toFolder(wanted,
+              game: game, settings: settings, stats: stats, days: days, profile: profile);
+    }
+
+    final staged = await _stage(wanted,
+        game: game, settings: settings, stats: stats, days: days, profile: profile);
+    try {
+      final bytes = await staged.length();
+      final String? landed;
+      try {
+        landed = await _channel.invokeMethod<String>(
+          'saveAs',
+          {'path': staged.path, 'name': wanted},
+        );
+      } on PlatformException catch (e) {
+        throw SaveFileError(
+          e.code == 'unavailable'
+              ? 'This phone has no file manager to save into.'
+              : 'The save could not be written there.',
+        );
+      }
+      if (landed == null) return const ExportOutcome.cancelled();
+      return ExportOutcome.saved(name: landed, bytes: bytes, where: null);
+    } finally {
+      await discard(staged);
+    }
+  }
+
+  static Future<ExportOutcome> _toFolder(
+    String name, {
+    required GameController game,
+    required SettingsStore settings,
+    required StatsStore stats,
+    required DayStatsStore days,
+    required ProfileStore profile,
+  }) async {
+    final folder = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Where should the save go?',
+    );
+    if (folder == null) return const ExportOutcome.cancelled();
+    final target = File('$folder${Platform.pathSeparator}$name');
+    final bytes = await SaveFile.write(
+      target,
+      game: game,
+      settings: settings,
+      stats: stats,
+      days: days,
+      profile: profile,
+    );
+    return ExportOutcome.saved(name: name, bytes: bytes, where: folder);
+  }
+
+  /// Writes the save into the cache. Both phone routes hand another app a
+  /// real file, and the cache directory is the one place this app can always
+  /// write to.
+  static Future<File> _stage(
+    String name, {
+    required GameController game,
+    required SettingsStore settings,
+    required StatsStore stats,
+    required DayStatsStore days,
+    required ProfileStore profile,
+  }) async {
+    final dir = await getTemporaryDirectory();
+    final target = File(
+      '${dir.path}${Platform.pathSeparator}exports${Platform.pathSeparator}$name',
+    );
+    await SaveFile.write(
+      target,
+      game: game,
+      settings: settings,
+      stats: stats,
+      days: days,
+      profile: profile,
+    );
+    return target;
   }
 
   // --- import --------------------------------------------------------------

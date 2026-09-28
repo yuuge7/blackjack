@@ -359,4 +359,10 @@ void main() {
       'blackjack-2026-09-20.bjsave',
     );
   });
+
+  test('the pre-import backup is named apart from a plain export', () {
+    final backup = SaveFile.backupName(DateTime(2026, 9, 20));
+    expect(backup, 'blackjack-2026-09-20-before-import.bjsave');
+    expect(backup, isNot(SaveFile.suggestedName(DateTime(2026, 9, 20))));
+  });
 }
